@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud Notebook</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        body { font-family: 'Noto Sans TC', sans-serif; }
+        .hidden { display: none; }
+        .fade-in { animation: fadeIn 0.6s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* 狀態燈呼吸 */
+        .status-pulse { animation: status-pulse 1.8s infinite ease-in-out; }
+        @keyframes status-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.9); } }
+        
+        .glow-green { box-shadow: 0 0 10px rgba(16, 185, 129, 0.4); }
+        .glow-red { box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+        
+        /* 自定義捲軸 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-900">
+
+    <!-- 驗證畫面 -->
+    <div id="login-screen" class="fixed inset-0 z-[100] bg-slate-900/95 backdrop-blur-md flex items-center justify-center hidden">
+        <div class="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-sm mx-4 text-center">
+            <div class="mb-8 inline-flex p-5 bg-indigo-50 rounded-full text-indigo-600">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002-2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+            </div>
+            <h2 class="text-2xl font-black mb-2 text-slate-800 tracking-tight">身分驗證</h2>
+            <p class="text-slate-400 mb-8 text-sm">此頁面受加密保護</p>
+            <input type="password" id="pw-input" class="w-full px-5 py-4 rounded-2xl border border-slate-100 mb-4 focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-center tracking-widest" placeholder="••••••">
+            <button id="login-btn" class="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-indigo-600 transition-all shadow-xl shadow-indigo-100 active:scale-95">驗證進入</button>
+            <p id="login-error" class="text-red-500 text-xs mt-4 hidden">密碼錯誤，請重試</p>
+        </div>
+    </div>
+
+    <!-- 左上角狀態面板 (整合進度條) -->
+    <div class="fixed top-6 left-6 z-50 flex flex-col space-y-2 pointer-events-none">
+        <div class="flex items-center space-x-3 bg-white/80 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white shadow-sm ring-1 ring-slate-200/50">
+            <div id="status-dot" class="w-2 h-2 rounded-full bg-amber-400 status-pulse"></div>
+            <div class="flex flex-col">
+                <div class="flex items-center space-x-2">
+                    <span id="storage-label" class="text-[10px] font-black uppercase tracking-widest text-slate-500">Connecting</span>
+                    <span id="latency-label" class="text-[9px] font-medium text-slate-400">-- ms</span>
+                </div>
+                <!-- 微型進度條 -->
+                <div id="usage-container" class="mt-1 w-24 opacity-0 transition-opacity duration-500">
+                    <div class="w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+                        <div id="usage-bar" class="h-full bg-indigo-500 transition-all duration-700" style="width: 0%"></div>
+                    </div>
+                    <div class="flex justify-between text-[7px] font-black text-slate-400 mt-0.5">
+                        <span id="note-count">0 ITEMS</span>
+                        <span id="usage-percent">0%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主頁面內容 -->
+    <div id="main-content" class="max-w-3xl mx-auto px-6 py-24 opacity-0 transition-all duration-1000 transform translate-y-4">
+        <header class="mb-16 flex flex-col items-center">
+            <h1 class="text-5xl font-black text-slate-900 tracking-tighter">Cloud<span class="text-indigo-600">.</span></h1>
+            <div class="mt-4 px-4 py-1 bg-white border border-slate-200 rounded-full text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] shadow-sm">200MB D1 Storage</div>
+        </header>
+
+        <!-- 筆記編輯器 -->
+        <div class="bg-white rounded-[2.5rem] shadow-xl shadow-slate-200/50 p-8 mb-12 border border-white/50 ring-1 ring-slate-100">
+            <input type="text" id="noteTitle" placeholder="標題" class="w-full mb-3 px-2 py-1 text-2xl font-black border-none focus:ring-0 outline-none placeholder:text-slate-200 tracking-tight">
+            <textarea id="noteContent" placeholder="在此輸入您的想法..." rows="5" class="w-full px-2 py-1 text-slate-600 border-none focus:ring-0 outline-none resize-none text-lg leading-relaxed placeholder:text-slate-200"></textarea>
+            
+            <div class="flex items-center justify-between mt-6 pt-6 border-t border-slate-50">
+                <span id="error-msg" class="text-red-500 text-xs font-bold hidden flex items-center">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    空間不足 (200MB)
+                </span>
+                <div class="flex-1"></div>
+                <button id="saveBtn" class="bg-slate-900 text-white px-10 py-4 rounded-2xl font-bold hover:bg-indigo-600 transition-all duration-300 shadow-lg shadow-slate-200 active:scale-95 disabled:bg-slate-200 disabled:scale-100">
+                    儲存筆記
+                </button>
+            </div>
+        </div>
+
+        <!-- 筆記列表 -->
+        <div id="notesList" class="grid gap-8">
+            <!-- 由 JS 動態生成 -->
+        </div>
+    </div>
+
+    <script>
+        let config = { hasPassword: false, storageMode: 'local' };
+        const MAX_QUOTA = 200 * 1024 * 1024; // 200MB
+
+        const els = {
+            main: document.getElementById('main-content'),
+            loginScreen: document.getElementById('login-screen'),
+            loginBtn: document.getElementById('login-btn'),
+            pwInput: document.getElementById('pw-input'),
+            statusDot: document.getElementById('status-dot'),
+            storageLabel: document.getElementById('storage-label'),
+            latencyLabel: document.getElementById('latency-label'),
+            usageBar: document.getElementById('usage-bar'),
+            usagePercent: document.getElementById('usage-percent'),
+            noteCount: document.getElementById('note-count'),
+            usageContainer: document.getElementById('usage-container'),
+            saveBtn: document.getElementById('saveBtn'),
+            errorMsg: document.getElementById('error-msg'),
+            notesList: document.getElementById('notesList')
+        };
+
+        async function init() {
+            checkLatency();
+            try {
+                const res = await fetch('/api/notes?action=config');
+                config = await res.json();
+            } catch (e) { console.warn("Backend unavailable"); }
+
+            els.storageLabel.textContent = config.storageMode === 'd1' ? 'Cloud D1' : 'Local Storage';
+            
+            if (config.hasPassword) {
+                els.loginScreen.classList.remove('hidden');
+            } else {
+                showMain();
+            }
+            setInterval(checkLatency, 20000);
+        }
+
+        async function checkLatency() {
+            const start = Date.now();
+            try {
+                const res = await fetch('/api/notes?action=ping');
+                if (res.ok) {
+                    els.statusDot.className = 'w-2 h-2 rounded-full bg-emerald-400 glow-green';
+                    els.latencyLabel.textContent = (Date.now() - start) + ' ms';
+                }
+            } catch (e) {
+                els.statusDot.className = 'w-2 h-2 rounded-full bg-red-400 glow-red';
+            }
+        }
+
+        function showMain() {
+            els.loginScreen.classList.add('hidden');
+            els.main.classList.remove('opacity-0', 'translate-y-4');
+            render();
+        }
+
+        els.loginBtn.onclick = async () => {
+            const password = els.pwInput.value;
+            const res = await fetch('/api/notes?action=login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            });
+            if (res.ok) showMain();
+            else document.getElementById('login-error').classList.remove('hidden');
+        };
+
+        async function render() {
+            const resData = await (config.storageMode === 'd1' 
+                ? fetch('/api/notes').then(r => r.json())
+                : Promise.resolve({ notes: JSON.parse(localStorage.getItem('cloud_notes') || '[]'), stats: null }));
+
+            const notes = resData.notes || [];
+            
+            // 更新進度條 UI
+            if (config.storageMode === 'd1' && resData.stats) {
+                els.usageContainer.classList.remove('opacity-0');
+                els.noteCount.textContent = `${resData.stats.count} ITEMS`;
+                const percent = ((resData.stats.sizeBytes / MAX_QUOTA) * 100).toFixed(4);
+                els.usagePercent.textContent = `${percent}%`;
+                els.usageBar.style.width = Math.max(percent, 2) + '%';
+                
+                if (parseFloat(percent) >= 100) {
+                    els.usageBar.classList.replace('bg-indigo-500', 'bg-red-500');
+                    els.saveBtn.disabled = true;
+                    els.saveBtn.textContent = '空間已滿';
+                } else {
+                    els.usageBar.classList.replace('bg-red-500', 'bg-indigo-500');
+                    els.saveBtn.disabled = false;
+                    els.saveBtn.textContent = '儲存筆記';
+                }
+            }
+
+            if (notes.length === 0) {
+                els.notesList.innerHTML = `<div class="text-center py-20 text-slate-200 font-bold tracking-widest uppercase text-sm">Empty Space</div>`;
+                return;
+            }
+
+            els.notesList.innerHTML = notes.map(n => `
+                <div class="bg-white p-8 rounded-[2.5rem] border border-white shadow-sm ring-1 ring-slate-100 relative group transition-all duration-500 hover:shadow-xl hover:shadow-slate-200/50 fade-in">
+                    <h3 class="font-black text-slate-800 text-xl mb-3 tracking-tight group-hover:text-indigo-600 transition-colors">${n.title || '無標題'}</h3>
+                    <p class="text-slate-500 leading-relaxed whitespace-pre-wrap text-lg">${n.content}</p>
+                    <div class="mt-6 flex items-center justify-between">
+                        <span class="text-[10px] font-black text-slate-300 uppercase tracking-widest">${new Date(n.created_at).toLocaleString()}</span>
+                        <button onclick="handleDelete(${n.id})" class="opacity-0 group-hover:opacity-100 p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all duration-300">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        els.saveBtn.onclick = async () => {
+            const title = document.getElementById('noteTitle').value.trim();
+            const content = document.getElementById('noteContent').value.trim();
+            if (!content) return;
+
+            els.saveBtn.disabled = true;
+            els.saveBtn.textContent = '處理中...';
+            els.errorMsg.classList.add('hidden');
+
+            if (config.storageMode === 'd1') {
+                const res = await fetch('/api/notes', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ title, content }) 
+                });
+
+                if (res.status === 403) {
+                    els.errorMsg.classList.remove('hidden');
+                    els.saveBtn.textContent = '空間已滿';
+                    return;
+                }
+            } else {
+                const notes = JSON.parse(localStorage.getItem('cloud_notes') || '[]');
+                notes.unshift({ title, content, id: Date.now(), created_at: new Date().toISOString() });
+                localStorage.setItem('cloud_notes', JSON.stringify(notes));
+            }
+
+            document.getElementById('noteTitle').value = '';
+            document.getElementById('noteContent').value = '';
+            render();
+        };
+
+        window.handleDelete = async (id) => {
+            if (!confirm('確定刪除？')) return;
+            if (config.storageMode === 'd1') await fetch(`/api/notes?id=${id}`, { method: 'DELETE' });
+            else {
+                const notes = JSON.parse(localStorage.getItem('cloud_notes') || '[]');
+                localStorage.setItem('cloud_notes', JSON.stringify(notes.filter(n => n.id !== id)));
+            }
+            render();
+        };
+
+        els.pwInput.onkeypress = (e) => { if(e.key === 'Enter') els.loginBtn.click(); };
+
+        init();
+    </script>
+</body>
+</html>
+
+  
